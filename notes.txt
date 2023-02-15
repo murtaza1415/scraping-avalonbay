@@ -1,0 +1,12 @@
+comm url, comm name, comm address, details, Furnish price, specials, check for 2 prices and sqft?
+Master file on states (and cities).
+Spit out report on newly added and removed communities.
+Get communities first (small scrape)
+Image name should be unique across all websites.
+mm-dd-yyyy
+3 Modes: State/city file, entire website, community url
+Config file for email, concurrency
+Log file.
+Empty file notification
+Error alarms.
+All other fancy features.
