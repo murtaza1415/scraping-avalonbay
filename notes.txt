@@ -1,12 +1,37 @@
-comm url, comm name, comm address, details, Furnish price, specials, check for 2 prices and sqft?
-Master file on states (and cities).
-Spit out report on newly added and removed communities.
-Get communities first (small scrape)
-Image name should be unique across all websites.
-mm-dd-yyyy
-3 Modes: State/city file, entire website, community url
-Config file for email, concurrency
-Log file.
-Empty file notification
-Error alarms.
-All other fancy features.
+
+
+avalonbay_v1.0:
+(TODO) Get community data first (small scrape) and share with Robert.
+    Fix addresses.
+    Remove duplicate rows.
+(TODO) check for 2 prices and sqft?
+(TODO) Output format:
+    Follow JSON example.
+    comm url, comm name, comm address, the obvious stuff, Furnish price, specials, details
+    mm-dd-yyyy
+(TODO) Master file on states/cities. Only scrape states/cities mentioned in the file.
+(TODO) Notify report on newly added and removed communities.
+(TODO) Image name should be unique across all websites.
+(TODO) Proxies.
+(TODO) How frequently should I rotate the proxy?
+(TODO) 3 Modes: Website, State/city file, community url
+(TODO) Concurrency
+(TODO) Config file for email, concurrency
+(TODO) Log file.
+(TODO) Empty file notification
+(TODO) Error alarms.
+(TODO) All other fancy features. Check past scrapes to see if there are any missing features.
+(TODO) Pyinstaller.
+(TODO) Don't use environ for proxy_path.
+(TODO) Remove unecessary sleeps and waits.
+(TODO) Pip installations from script.
+
+
+Misc:
+    - Json to csv converter: https://conversiontools.io/convert/xml-to-excel
+    - Home page: https://www.avaloncommunities.com/
+    - Locations: https://www2.avaloncommunities.com/apartment-locations
+    - Community example: https://www.avaloncommunities.com/california/berkeley-apartments/
+    - Each entry listed on the community page is a unit.
+    - In apt-number, first number shows phase, second number shows unit.
+
