@@ -37,5 +37,8 @@ def split_address(address):
     state = city_state_zip.split(',',1)[1].strip().split(' ',1)[0].strip()
     zip_code = city_state_zip.split(',',1)[1].strip().split(' ',1)[1].strip()
 
+    # Manipulation.
+    if number == 'One':
+        number = '1'
 
     return number, street, city, state, zip_code

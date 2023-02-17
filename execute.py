@@ -1,4 +1,5 @@
 import csv
+import json
 from time import sleep
 from pathlib import Path
 from urllib import parse
@@ -96,15 +97,22 @@ async def get_city(browser, city_url):
             writer = csv.writer(f)
             writer.writerow(community_csv_headers)
 
+    # Read content from communities file.
+    with open(Path(this_directory / 'output/avalonbay_communities.csv'), 'r', encoding='utf-8') as f:
+        file_content = f.read()
+
     # Write all communties to csv file.
     with open(Path(this_directory / 'output/avalonbay_communities.csv'), 'a', encoding='utf-8', newline='') as f:
         writer = csv.writer(f)
         for community in communities:
-            writer.writerow(['']+community)
+            community_url = community[1]
+            if community_url not in file_content:    # Do not add duplicates. Using community_url as unique identifier.
+                writer.writerow(['']+community)
+            else:
+                print(f'-- community is duplicate. not writing to file: {community_url}')
 
     for community in communities:
-        community_url = community[1]
-        await get_community(page, community_url)
+        await get_community(page, community[1], community[0])
 
     await page.close()
     await context.close()
@@ -113,17 +121,98 @@ async def get_city(browser, city_url):
     
 
 
-async def get_community(page, community_url):
+async def get_community(page, community_url, community_name):
     apartments_button = page.locator('xpath=//button[@id="apartment-toggle"]')
 
     await apartments_button.click()
 
+    embedded_script = await page.locator('xpath=//script[@id="fusion-metadata"]').inner_html()
+    json_start_index = embedded_script.index('{"itemsCount":')
+    json_end_index = embedded_script.index(',"communityFilters"')
+    embedded_json = embedded_script[json_start_index:json_end_index]
+    embedded_json = json.loads(embedded_json)
+
+    
     # TODO: Make sure that the matching of unit with community is reliable.
     unit_cards = page.locator(f'xpath=//div[@class="ant-card-body"][.//a[contains(@href,"{community_url}")]]')
 
     num_units = await unit_cards.count()
 
     print(f'Num of units: {num_units}')
+
+    for i in range(num_units):
+        unit_card = unit_cards.nth(i)
+        title = await unit_card.locator('xpath=.//div[@class="ant-card-meta-title"]').inner_text()
+        unit_number = title.split('\n')[0].replace('Apt.', '',1).strip()
+        
+        unit_specs = await unit_card.locator('xpath=.//div[@class="description"]').inner_text()
+        unit_specs = unit_specs.split('•')
+        
+        unit_price = await unit_card.locator('xpath=.//span[contains(@class,"unit-price")]').inner_text()
+        unit_url = await unit_card.locator('xpath=.//a[contains(@class,"unit-item-details-title")]').get_attribute('href')
+        
+        unit_furnish_price = None
+        furnish_div = unit_card.locator('xpath=.//div[contains(text(),"Furnished starting at")]')
+        if await furnish_div.is_visible():
+            unit_furnish_price = await furnish_div.inner_text()
+            unit_furnish_price = unit_furnish_price.replace('Furnished starting at','').strip()
+
+        unit_image_url = await unit_card.locator('xpath=.//div[contains(@class,"unit-image")]//img').first.get_attribute('src')
+        unit_image_url = parse.urljoin(community_url, unit_image_url)  # For image urls like '/pf/resources/img/notfound-borderless.png?d=80'
+
+        '''
+        unit_adate = None
+        url_split = unit_url.split('&')
+        for s in url_split:
+            if 'moveInDate' in s:
+                s = s.replace('%2F','/')
+                unit_adate = s.split('=')[1]
+                break
+        '''
+
+        for unit_json in embedded_json['items']:
+            if unit_json['unitName'] == unit_number:
+                unit_beds = unit_json['bedroomNumber']
+                unit_baths = unit_json['bathroomNumber']
+                unit_sqft = unit_json['squareFeet']
+                unit_adate = None
+                if unit_json['furnishStatus'] == 'Designated':        # Furnished only apartments do not have unfurnished adate.
+                    unit_adate = unit_json['availableDateFurnished']
+                else:
+                    unit_adate = unit_json['availableDateUnfurnished']
+                unit_specials = []
+                if 'promotions' in unit_json:
+                    for promo in unit_json['promotions']:
+                        promo_title = promo['promotionTitle']
+                        unit_specials.append(promo_title)
+                unit_packages = []
+                if 'finishPackage' in unit_json:
+                    package_name = unit_json['finishPackage']['name']
+                    package_disc = unit_json['finishPackage']['description']
+                    unit_packages.append(package_name + ': ' + package_disc)
+                unit_virtual = None
+                if 'virtualTour' in unit_json:
+                    unit_virtual = unit_json['virtualTour']['space']
+                break
+
+        print(f'Unit no: {unit_number}')
+        print(f'Spec list: {unit_specs}')
+        print(f'Beds: {unit_beds}')
+        print(f'Baths: {unit_baths}')
+        print(f'Sqft: {unit_sqft}')
+        print(f'Price: {unit_price}')
+        print(f'Fur price: {unit_furnish_price}')
+        print(f'Url: {unit_url}')
+        print(f'Image url: {unit_image_url}')
+        print(f'Virtual tour: {unit_virtual}')
+        print(f'Move in: {unit_adate}')
+        print(f'Specials: {unit_specials}')
+        print(f'Packages: {unit_packages}')
+
+        print('\n')
+
+
+
 
 
 

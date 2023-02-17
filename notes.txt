@@ -5,6 +5,7 @@ avalonbay_v1.0:
     Fix addresses.
     Remove duplicate rows.
 (TODO) check for 2 prices and sqft?
+(TODO) Do not scrape same community multiple times.
 (TODO) Output format:
     Follow JSON example.
     comm url, comm name, comm address, the obvious stuff, Furnish price, specials, details
@@ -14,7 +15,7 @@ avalonbay_v1.0:
 (TODO) Image name should be unique across all websites.
 (TODO) Proxies.
 (TODO) How frequently should I rotate the proxy?
-(TODO) 3 Modes: Website, State/city file, community url
+(TODO) 4 Modes: Website, State/city file, input url, scrape by a file (a list of apt name and urls)
 (TODO) Concurrency
 (TODO) Config file for email, concurrency
 (TODO) Log file.
