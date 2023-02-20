@@ -1,31 +1,36 @@
 
 
 avalonbay_v1.0:
-(TODO) Get community data first (small scrape) and share with Robert.
-    Fix addresses.
-    Remove duplicate rows.
-(TODO) check for 2 prices and sqft?
-(TODO) Do not scrape same community multiple times.
-(TODO) Output format:
-    Follow JSON example.
-    comm url, comm name, comm address, the obvious stuff, Furnish price, specials, details
-    mm-dd-yyyy
-(TODO) Master file on states/cities. Only scrape states/cities mentioned in the file.
-(TODO) Notify report on newly added and removed communities.
-(TODO) Image name should be unique across all websites.
-(TODO) Proxies.
-(TODO) How frequently should I rotate the proxy?
-(TODO) 4 Modes: Website, State/city file, input url, scrape by a file (a list of apt name and urls)
-(TODO) Concurrency
-(TODO) Config file for email, concurrency
-(TODO) Log file.
-(TODO) Empty file notification
-(TODO) Error alarms.
-(TODO) All other fancy features. Check past scrapes to see if there are any missing features.
-(TODO) Pyinstaller.
-(TODO) Don't use environ for proxy_path.
-(TODO) Remove unecessary sleeps and waits.
-(TODO) Pip installations from script.
+    (TODO) Get community data first (small scrape) and share with Robert.
+        Fix addresses.
+        Remove duplicate rows.
+    (TODO) check for 2 prices and sqft?
+    (TODO) Write community dict to community csv file.
+    (TODO) Data to scrape.
+        Check 'pending' fields marked in code.
+    (TODO) Do not scrape same community multiple times.
+    (TODO) Output format:
+        Follow JSON example.
+        comm url, comm name, comm address, the obvious stuff, Furnish price, specials, details
+        mm-dd-yyyy
+    (TODO) Master file on states/cities. Only scrape states/cities mentioned in the file.
+    (TODO) Notify report on newly added and removed communities.
+    (TODO) Proxies.
+    (TODO) How frequently should I rotate the proxy?
+    (TODO) 4 Modes: Website, State/city file, input url, scrape by a file (a list of apt name and urls)
+    (TODO) Concurrency
+    (TODO) Config file for email, concurrency
+    (TODO) Log file.
+    (TODO) Empty file notification
+    (TODO) Error alarms. (Audible alarm not required, send email)
+    (TODO) All other fancy features. Check past scrapes to see if there are any missing features.
+    (TODO) Pyinstaller.
+    (TODO) Don't use environ for proxy_path.
+    (TODO) Remove unecessary sleeps and waits.
+    (TODO) Pip installations from script.
+    (done) Download images.
+        Download only once.
+        Image name should be unique across all websites.
 
 
 Misc:

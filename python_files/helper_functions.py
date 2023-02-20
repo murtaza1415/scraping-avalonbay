@@ -1,9 +1,16 @@
 import os
 import random
+import hashlib
 
 
 
 proxy_path = os.environ['proxy_file_path']
+
+
+
+def get_image_filename(image_url):
+    image_guid = hashlib.sha1(image_url.encode('utf-8')).hexdigest()
+    return f'{image_guid}.jpg'
 
 
 
