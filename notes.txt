@@ -1,36 +1,51 @@
 
 
 avalonbay_v1.0:
-    (TODO) Get community data first (small scrape) and share with Robert.
-        Fix addresses.
-        Remove duplicate rows.
-    (TODO) check for 2 prices and sqft?
-    (TODO) Write community dict to community csv file.
-    (TODO) Data to scrape.
-        Check 'pending' fields marked in code.
-    (TODO) Do not scrape same community multiple times.
-    (TODO) Output format:
-        Follow JSON example.
-        comm url, comm name, comm address, the obvious stuff, Furnish price, specials, details
-        mm-dd-yyyy
-    (TODO) Master file on states/cities. Only scrape states/cities mentioned in the file.
-    (TODO) Notify report on newly added and removed communities.
-    (TODO) Proxies.
-    (TODO) How frequently should I rotate the proxy?
-    (TODO) 4 Modes: Website, State/city file, input url, scrape by a file (a list of apt name and urls)
-    (TODO) Concurrency
-    (TODO) Config file for email, concurrency
-    (TODO) Log file.
-    (TODO) Empty file notification
-    (TODO) Error alarms. (Audible alarm not required, send email)
-    (TODO) All other fancy features. Check past scrapes to see if there are any missing features.
-    (TODO) Pyinstaller.
-    (TODO) Don't use environ for proxy_path.
-    (TODO) Remove unecessary sleeps and waits.
-    (TODO) Pip installations from script.
+    (done) 5 Modes: Website, state name, State/city file, input url, scrape by a file (a list of apt id and urls)
     (done) Download images.
         Download only once.
         Image name should be unique across all websites.
+        (test) Get community data first (small scrape) and share with Robert.
+        Fix addresses.
+        Remove duplicate rows.
+    (done) Reduce network usage. Abort unnecessary requests.
+    (test) Output format:
+        Follow JSON example.
+        comm url, comm name, comm address, the obvious stuff, Furnish price, specials, details
+        mm-dd-yyyy
+    (test) Concurrency
+        Concurrency for download_images, get_community?
+    (test) check for 2 prices and sqft?
+    (test) Write community dict to community csv file.
+    (test) Proxies.
+        test. How frequently should I rotate the proxy? Per city, and per community.
+        test. Use rentalbeast project level file for proxies.
+    (test) Log file.
+        Log file size.
+        Remove unecessary logging.
+    (test) Config file for email, concurrency
+    (test) Change data format.
+    (test) Do not scrape same community multiple times.
+    (TODO) Verify integrity of data.
+    (TODO) Data to scrape.
+        Check 'pending' fields marked in code.
+        rest. UnitID is not fully displayed on the city page. Have to open community page. Example: https://www.avaloncommunities.com/new-york/long-island-apartments/avalon-harbor-isle/
+    (TODO) Master file on states/cities. Only scrape states/cities mentioned in the file.
+    (TODO) Notifications:
+        Empty file notification
+        Error notifications. (Audible alarm not required, send email)
+    \   Notify report on newly added and removed communities.
+    (TODO) All other fancy features. Check past scrapes to see if there are any missing features.
+    (TODO) Retries.
+	(TODO) Exception handling.
+    (TODO) Should terminal remain open in case of error?
+    (TODO) Should old output files be deleted when scraping.
+    (TODO) Pyinstaller.
+    (TODO) Batch file?
+    (TODO) Remove unecessary sleeps and waits.
+    (TODO) Remove unecessary log statements.
+    (TODO) Pip installations from script.
+    (TODO) Comments and cleaning.
 
 
 Misc:
@@ -41,3 +56,178 @@ Misc:
     - Each entry listed on the community page is a unit.
     - In apt-number, first number shows phase, second number shows unit.
 
+
+
+
+
+
+async def get_community_without_opening(page, community, proxy):
+    max_attempts = 2
+    for attempt_number in range(1,max_attempts+1):
+        try:
+            community_url = community['community_url']
+            community_name = community['community_name']
+            community_state = community['address_state']
+            community_city = community['address_city']
+
+            community_data = [
+                {
+                    "additional_data": {
+                        "original_url": community_url,
+                        "apartment_name": community_name,
+                        "apartment_id": "pending"
+                    },
+                    "apartment_address_data": {
+                        "city": community['address_city'],
+                        "state": community['address_state'],
+                        "street_name": community['address_street'],
+                        "street_number": community['address_number'],
+                        "zip_code": community['address_zip']
+                    },
+                    "contact_information": {
+                        "Office Hours": "pending",
+                        "name": "pending",
+                        "phone": "pending"
+                    },
+                    "listings": [],
+                    "error": None
+                }
+            ]
+            
+            apartments_button = page.locator('xpath=//button[@id="apartment-toggle"]')
+
+            await apartments_button.click()
+
+            embedded_script = await page.locator('xpath=//script[@id="fusion-metadata"]').inner_html()
+            json_start_index = embedded_script.index('{"itemsCount":')
+            json_end_index = embedded_script.index(',"communityFilters"')
+            embedded_json = embedded_script[json_start_index:json_end_index]
+            embedded_json = json.loads(embedded_json)
+
+            
+            # TODO: Make sure that the matching of unit with community is reliable.
+            unit_cards = page.locator(f'xpath=//div[@class="ant-card-body"][.//a[contains(@href,"{community_url}")]]')
+
+            num_units = await unit_cards.count()
+
+            logging.info(f'Num of units: {num_units}')
+
+            for i in range(num_units):
+                unit_card = unit_cards.nth(i)
+                title = await unit_card.locator('xpath=.//div[@class="ant-card-meta-title"]').inner_text()
+                unit_number = title.split('\n')[0].replace('Apt.', '',1).strip()
+                
+                unit_specs = await unit_card.locator('xpath=.//div[@class="description"]').inner_text()
+                unit_specs = unit_specs.split('•')
+                
+                unit_price = await unit_card.locator('xpath=.//span[contains(@class,"unit-price")]').inner_text()
+                unit_url = await unit_card.locator('xpath=.//a[contains(@class,"unit-item-details-title")]').get_attribute('href')
+                unit_url = unit_url.split('?')[0]
+                
+                unit_furnish_price = None
+                furnish_div = unit_card.locator('xpath=.//div[contains(text(),"Furnished starting at")]')
+                if await furnish_div.is_visible():
+                    unit_furnish_price = await furnish_div.inner_text()
+                    unit_furnish_price = unit_furnish_price.replace('Furnished starting at','').strip()
+
+                unit_img_url = await unit_card.locator('xpath=.//div[contains(@class,"unit-image")]//img').first.get_attribute('src')
+                unit_img_url = parse.urljoin(community_url, unit_img_url)  # Some image urls like '/pf/resources/img/notfound-borderless.png?d=80' need joining.
+                unit_img_filename = get_image_filename(unit_img_url)
+
+                '''
+                unit_adate = None
+                url_split = unit_url.split('&')
+                for s in url_split:
+                    if 'moveInDate' in s:
+                        s = s.replace('%2F','/')
+                        unit_adate = s.split('=')[1]
+                        break
+                '''
+
+                for unit_json in embedded_json['items']:
+                    if unit_json['unitName'] == unit_number:
+                        unit_beds = unit_json['bedroomNumber']
+                        if unit_beds:    # Convert from integer to string.
+                            unit_beds = str(unit_beds)
+                        unit_baths = unit_json['bathroomNumber']
+                        if unit_baths:    # Convert from integer to string.
+                            unit_baths = str(unit_baths)
+                        unit_sqft = unit_json['squareFeet']
+                        if unit_sqft:    # Convert from integer to string.
+                            unit_sqft = str(unit_sqft)
+                        unit_floorplan_name = None
+                        if 'floorplan' in unit_json:
+                            unit_floorplan_name = unit_json['floorPlan']['name']
+                            unit_floorplan_name = unit_floorplan_name.split('-')[0]
+                        unit_adate = None
+                        if unit_json['furnishStatus'] == 'Designated':        # Furnished only apartments do not have unfurnished adate.
+                            unit_adate = unit_json['availableDateFurnished']
+                            unit_adate = unit_adate.split('T')[0]    # Remove time.
+                        else:
+                            unit_adate = unit_json['availableDateUnfurnished']
+                            unit_adate = unit_adate.split('T')[0]    # Remove time.
+                        unit_specials = []
+                        if 'promotions' in unit_json:
+                            for promo in unit_json['promotions']:
+                                promo_title = promo['promotionTitle']
+                                unit_specials.append(promo_title)
+                        unit_specials = '\n'.join(s for s in unit_specials)
+                        unit_package = None
+                        if 'finishPackage' in unit_json:
+                            package_name = unit_json['finishPackage']['name']
+                            package_disc = unit_json['finishPackage']['description']
+                            unit_package = package_name + ': ' + package_disc
+                        unit_virtual = None
+                        if 'virtualTour' in unit_json:
+                            unit_virtual = unit_json['virtualTour']['space']
+                        break
+
+                logging.info('\n')
+                logging.info(f'Unit no: {unit_number}')
+                logging.info(f'Floorplan: {unit_floorplan_name}')
+                logging.info(f'Spec list: {unit_specs}')
+                logging.info(f'Beds: {unit_beds}')
+                logging.info(f'Baths: {unit_baths}')
+                logging.info(f'Sqft: {unit_sqft}')
+                logging.info(f'Price: {unit_price}')
+                logging.info(f'Fur price: {unit_furnish_price}')
+                logging.info(f'Url: {unit_url}')
+                logging.info(f'Image url: {unit_img_url}')
+                logging.info(f'Virtual tour: {unit_virtual}')
+                logging.info(f'Move in: {unit_adate}')
+                logging.info(f'Specials: {unit_specials}')
+                logging.info(f'Packages: {unit_package}')
+
+                community_data[0]['listings'].append(
+                    {
+                        "available": unit_adate,
+                        "bathrooms": unit_baths,
+                        "bedrooms": unit_beds,
+                        "floor_plan_name": unit_floorplan_name,
+                        "rent": unit_price,
+                        "furnishedRent": unit_furnish_price,
+                        "sqft": unit_sqft,
+                        "unitId": unit_number,
+                        "unit_url": unit_url,
+                        "image_url": unit_img_url,
+                        "image_filename": unit_img_filename,
+                        "virtual_tour": unit_virtual,
+                        "specials": unit_specials,
+                        "unit_details": unit_package
+                    }
+                )
+
+                output_file_name = slugify(f'{community_state}_{community_city}_{community_name}').replace('-', '_') + '.json'
+                with open(Path(this_directory, f'output/{output_file_name}'), 'w', encoding='utf-8') as f:
+                    json.dump(community_data, f)
+
+                await download_image(unit_img_url, proxy)
+
+            scraped_communities.append(community_url)
+            
+            break
+        except:
+            community_url = community['community_url']
+            logging.info(f'Exception in get_community: {community_url}')
+            logging.info(f'Exception in attempt {attempt_number}')
+            logging.exception('exception: ')
