@@ -2,21 +2,50 @@ import os
 import sys
 import csv
 import json
+import glob
 import logging
 import asyncio
-import aiohttp
+import subprocess
 import configparser
-from PIL import Image
 from io import BytesIO
 from time import sleep
 from pathlib import Path
 from urllib import parse
-from parsel import Selector
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-from playwright.async_api import async_playwright
 from python_files import data_manipulation
+from python_files.email_ import send_email
 from python_files.helper_functions import get_image_filename, get_proxy, slugify
+
+
+try:
+    from PIL import Image
+except:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", 'Pillow'])
+    import PIL
+    from PIL import Image
+
+try:
+    import aiohttp
+except:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", 'aiohttp'])
+    import aiohttp
+
+try:
+    from parsel import Selector
+except:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", 'parsel'])
+    from parsel import Selector
+
+try:
+    from playwright.async_api import async_playwright
+except:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", 'playwright'])
+    sleep(1)
+    subprocess.check_call([sys.executable, "-m", "playwright", "install"])
+    sleep(2)
+    from playwright.async_api import async_playwright
+
 
 
 
@@ -26,12 +55,34 @@ this_directory = Path(__file__).parent
 config_file_local = this_directory / 'local_config/local_config.ini'
 #config_file_global = rb_directory / 'global_config/global_config.ini'
 
+newly_added_communities = []
 scraped_communities = []
+num_scraped_units = 0
+
+# To keep track of error state.
+error_state = False
+
+# These global variables will track the number of times that each function was called.
+total_calls_get_website = 0
+total_calls_get_state = 0
+total_calls_get_city = 0
+total_calls_get_city_name = 0
+total_calls_get_community = 0
+
+# These global variables will track the number of times that each function failed (after trying max_attempts).
+failed_calls_get_website = 0
+failed_calls_get_state = 0
+failed_calls_get_city = 0
+failed_calls_get_city_name = 0
+failed_calls_get_community = 0
+
 community_csv_headers = ['apartment_id', 'apartment_name', 'apartment_url', 'street_number', 'street_name', 'city', 'state', 'zip_code']
 
 
 
 async def get_website(browser):
+    global total_calls_get_website
+    total_calls_get_website += 1
     max_attempts = 3
     for attempt_number in range(1,max_attempts+1):
         try:
@@ -64,13 +115,18 @@ async def get_website(browser):
 
             break
         except:
-            logging.info(f'Exception in get_website')
-            logging.info(f'Exception in attempt {attempt_number}')
-            logging.exception('exception: ')
+            if attempt_number == max_attempts:    # Print exception if all the attempts failed.
+                global failed_calls_get_website
+                failed_calls_get_website += 1
+                logging.info(f'Exception in get_website')
+                #logging.info(f'Exception in attempt {attempt_number}')
+                logging.exception('exception: ')
         
 
 
 async def get_state(browser, input_state):
+    global total_calls_get_state
+    total_calls_get_state += 1
     logging.info(f'\nFetching state: {input_state}')
     max_attempts = 3
     for attempt_number in range(1,max_attempts+1):
@@ -105,15 +161,65 @@ async def get_state(browser, input_state):
 
             break
         except:
-            logging.info(f'Exception in get_state')
-            logging.info(f'Exception in attempt {attempt_number}')
-            logging.exception('exception: ')
+            if attempt_number == max_attempts:    # Print exception if all the attempts failed.
+                global failed_calls_get_state
+                failed_calls_get_state += 1
+                logging.info(f'Exception in get_state')
+                #logging.info(f'Exception in attempt {attempt_number}')
+                logging.exception('exception: ')
 
+
+
+async def get_city_from_name(browser, input_city_name):
+    global total_calls_get_city_name
+    total_calls_get_city_name += 1
+    max_attempts = 3
+    for attempt_number in range(1,max_attempts+1):
+        try:
+            proxy = get_proxy()
+            async with aiohttp.ClientSession() as session:
+                async with session.get('https://www2.avaloncommunities.com/apartment-locations', timeout=60, proxy=proxy[3]) as response:
+                    response_html = await response.text()
+                    response_status = response.status
+
+            selector = Selector(text=response_html)
+            city_a_list = selector.xpath('//div[@class="col-sm"]/a')
+            
+            cities = []
+            for element in city_a_list:
+                city_name = element.xpath('text()').get().strip()
+                city_url = element.xpath('@href').get().strip('/#? ')
+                if city_url.startswith('www'):
+                    city_url = 'https://' + city_url
+                city_state = city_url.split('/')[3].replace('-', ' ').title().strip()
+                if input_city_name.lower() == city_name.lower():
+                    cities.append({'url': city_url, 'name': city_name, 'state': city_state})
+
+            if len(cities)== 0:
+                logging.info(f'\n---- Found no city that matches name: {input_city_name}\n')
+
+            tasks = set()
+            for city in cities:
+                task = asyncio.create_task(get_city(browser, city['url'], city['name'], city['state']))
+                tasks.add(task)
+                task.add_done_callback(tasks.discard)
+            await asyncio.gather(*tasks)
+
+            break
+        except:
+            if attempt_number == max_attempts:    # Print exception if all the attempts failed.
+                global failed_calls_get_city_name
+                failed_calls_get_city_name += 1
+                logging.info(f'Exception in get_city_from_name')
+                #logging.info(f'Exception in attempt {attempt_number}')
+                logging.exception('exception: ')
 
 
 async def get_city(browser, city_url, city_name, city_state):
     global semaphore_cities
     async with semaphore_cities:    # The semaphore controls how many cities can be scraped simultaneously.
+        global total_calls_get_city
+        total_calls_get_city += 1
         logging.info(f'\nFetching city: {city_name} ({city_state})\n')
         page = None
         context = None
@@ -155,7 +261,7 @@ async def get_city(browser, city_url, city_name, city_state):
 
                 num_communities = await community_cards.count()
 
-                logging.info(f'Number of communities: {num_communities}\n')
+                logging.info(f'\nNumber of communities: {num_communities}\n')
 
                 communities = []
                 for i in range(num_communities):
@@ -181,9 +287,12 @@ async def get_city(browser, city_url, city_name, city_state):
 
                 break
             except:
-                logging.info(f'Exception in get_city: {city_url}')
-                logging.info(f'Exception in attempt {attempt_number}')
-                logging.exception('exception: ')
+                if attempt_number == max_attempts:    # Print exception if all the attempts failed.
+                    global failed_calls_get_city
+                    failed_calls_get_city += 1
+                    logging.info(f'Exception in get_city: {city_url}')
+                    #logging.info(f'Exception in attempt {attempt_number}')
+                    logging.exception('exception: ')
                 if page:
                     await page.close()
                 if context:
@@ -192,12 +301,15 @@ async def get_city(browser, city_url, city_name, city_state):
 
 
 async def get_community_from_url(browser, community_url):
+    global total_calls_get_community
+    total_calls_get_community += 1
     logging.info(f'\nFetching apartment: {community_url}')
     page = None
     context = None
     max_attempts = 3
     for attempt_number in range(1,max_attempts+1):
         try:
+            community_url = community_url.split('#')[0].split('?')[0].strip('/')
             proxy = get_proxy()
             context = await browser.new_context(
                 viewport = {'height': 757, 'width': 1368},
@@ -265,7 +377,7 @@ async def get_community_from_url(browser, community_url):
                 }
             ]
 
-            # Create communities file if it doesn't exist.
+            # Create _avalonbay_apartments.csv if it doesn't already exist.
             if not Path.exists(this_directory / 'output/_avalonbay_apartments.csv'):
                 with open(Path('output/_avalonbay_apartments.csv'), 'w', encoding='utf-8', newline='') as f:
                     writer = csv.writer(f)
@@ -275,18 +387,24 @@ async def get_community_from_url(browser, community_url):
             with open(Path(this_directory / 'output/_avalonbay_apartments.csv'), 'r', encoding='utf-8') as f:
                 file_content = f.read()
 
-            # Write community data to _avalonbay_apartments.csv
+            # Add community info to _avalonbay_apartments.csv if community is not already in file.
             with open(Path(this_directory / 'output/_avalonbay_apartments.csv'), 'a', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f)
                 if community_url not in file_content:    # Do not add duplicates. Using community_url as unique identifier.
                     csv_row = ['pending', community_name, community_url, address_number, address_street, address_city, address_state, address_zip]
                     writer.writerow(csv_row)
+                    newly_added_communities.append(community_name + ' - ' + community_url)
                 else:
                     logging.info(f'-- community already in file: {community_url}')
 
-            logging.info(f'Community: {community_name}')
-            logging.info(f'Phone: {community_phone}')
-            logging.info(f'Times: {times_string}\n')
+            # Create json file for this community.
+            json_file_name = slugify(f'{address_state}_{address_city}_{community_name}').replace('-', '_') + '.json'
+            with open(Path(this_directory, f'output/{json_file_name}'), 'w', encoding='utf-8') as f:
+                pass
+
+            logging.info(f'\nCommunity: {community_name}')
+            #logging.info(f'Phone: {community_phone}')
+            #logging.info(f'Times: {times_string}\n')
 
             logging.debug('--- waiting for popup button')
             close_specials_button = page.locator('xpath=//span[@aria-label="close"]')
@@ -372,6 +490,8 @@ async def get_community_from_url(browser, community_url):
                                         promo_title = promo2['promotionTitle']
                                         unit_specials.append(promo_title)
                         unit_specials = '\n'.join(s for s in unit_specials)
+                        if unit_specials == '':
+                            unit_specials = None
                         
                         unit_package = None
                         if 'finishPackage' in unit_json:
@@ -386,21 +506,22 @@ async def get_community_from_url(browser, community_url):
                         break
 
                 logging.info('\n')
-                logging.info(f'Full Unit no: {unit_number}')
-                logging.info(f'Half unit no: {unit_number_half}')
-                logging.info(f'Floorplan: {unit_floorplan_name}')
-                logging.info(f'Spec list: {unit_specs}')
+                logging.info(f'Unit no: {unit_number}')
+                #logging.info(f'Half unit no: {unit_number_half}')
+                #logging.info(f'Floorplan: {unit_floorplan_name}')
+                #logging.info(f'Spec list: {unit_specs}')
                 logging.info(f'Beds: {unit_beds}')
                 logging.info(f'Baths: {unit_baths}')
                 logging.info(f'Sqft: {unit_sqft}')
                 logging.info(f'Price: {unit_price}')
-                logging.info(f'Fur price: {unit_furnish_price}')
-                logging.info(f'Url: {unit_url}')
-                logging.info(f'Image url: {unit_img_url}')
-                logging.info(f'Virtual tour: {unit_virtual}')
-                logging.info(f'Move in: {unit_adate}')
-                logging.info(f'Specials: {unit_specials}')
-                logging.info(f'Packages: {unit_package}')
+                #logging.info(f'Fur price: {unit_furnish_price}')
+                logging.info(f'Apt url: {community_url}')
+                #logging.info(f'Url: {unit_url}')
+                #logging.info(f'Image url: {unit_img_url}')
+                #logging.info(f'Virtual tour: {unit_virtual}')
+                #logging.info(f'Move in: {unit_adate}')
+                #logging.info(f'Specials: {unit_specials}')
+                #logging.info(f'Packages: {unit_package}')
 
                 community_data[0]['listings'].append(
                     {
@@ -421,20 +542,25 @@ async def get_community_from_url(browser, community_url):
                     }
                 )
 
-                output_file_name = slugify(f'{address_state}_{address_city}_{community_name}').replace('-', '_') + '.json'
-                with open(Path(this_directory, f'output/{output_file_name}'), 'w', encoding='utf-8') as f:
-                    json.dump(community_data, f)
-
                 await download_image(unit_img_url, proxy)
+                global num_scraped_units
+                num_scraped_units += 1
+
+            # Write 'community_data' to json file.
+            with open(Path(this_directory, f'output/{json_file_name}'), 'a', encoding='utf-8') as f:
+                json.dump(community_data, f)
 
             await page.close()
             await context.close()
             
             break
         except:
-            logging.info(f'Exception in get_community: {community_url}')
-            logging.info(f'Exception in attempt {attempt_number}')
-            logging.exception('exception: ')
+            if attempt_number == max_attempts:    # Print exception if all the attempts failed.
+                global failed_calls_get_community
+                failed_calls_get_community += 1
+                logging.info(f'Exception in get_community: {community_url}')
+                #logging.info(f'Exception in attempt {attempt_number}')
+                logging.exception('exception: ')
             if page:
                 await page.close()
             if context:
@@ -474,6 +600,8 @@ async def download_image(url, proxy):
 
 
 async def main():
+    # Use the global error_state variable to check and update error state if anything goes wrong.
+    global error_state
 
     ######################################################
     # Setup logging.
@@ -487,111 +615,191 @@ async def main():
     # Write logs to both stdout and file. 
     # Note: Playwright does not use Python's logger. Workaround: Catch playwright's exceptions and log them in the 'except' block.
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format = '',
         handlers=[
-            RotatingFileHandler(Path(this_directory, 'output/logs/log_file.log'), encoding='utf-8', maxBytes=1024*1024*30, backupCount=1),
+            RotatingFileHandler(Path(this_directory, 'output/logs/log_file.log'), encoding='utf-8', maxBytes=1024*1024*20, backupCount=1),
             logging.StreamHandler(sys.stdout)
         ]    
     )
     ######################################################
 
+    try:
+        # Change name of terminal window.
+        os.system("title " + 'AvalonBay scraper')
+        # Create images directory if it doesn't exist.
+        if not Path.exists(this_directory / 'output/images'):
+            Path.mkdir(this_directory / 'output/images')
 
-    # Change name of terminal window.
-    os.system("title " + 'AvalonBay scraper')
-    # Create images directory if it doesn't exist.
-    if not Path.exists(this_directory / 'output/images'):
-        Path.mkdir(this_directory / 'output/images')
+        # Load variables from config files. The purpose of having config files is so that the user can easily change the variables if needed.
+        config_local = configparser.ConfigParser(interpolation=None)
+        config_local.read(config_file_local)
+        #config_global = configparser.ConfigParser(interpolation=None)    # Setting interpolation to None means "%" won't be treated as a special character.
+        #config_global.read(config_file_global)
 
-    # Load variables from config files. The purpose of having config files is so that the user can easily change the variables if needed.
-    config_local = configparser.ConfigParser(interpolation=None)
-    config_local.read(config_file_local)
-    #config_global = configparser.ConfigParser(interpolation=None)    # Setting interpolation to None means "%" won't be treated as a special character.
-    #config_global.read(config_file_global)
-
-    global semaphore_cities      # Number of cities to scrape concurrently.
-    concurrency = config_local['settings']['number_of_concurrent_cities']
-    concurrency = int(concurrency)
-    semaphore_cities = asyncio.Semaphore(concurrency)
+        global semaphore_cities      # Number of cities to scrape concurrently.
+        concurrency = config_local['settings']['number_of_concurrent_cities']
+        concurrency = int(concurrency)
+        semaphore_cities = asyncio.Semaphore(concurrency)
 
 
-    # Start a browser session with playwright.
-    playwright = await async_playwright().start()
-    firefox = playwright.firefox
-    browser = await firefox.launch(headless=True)
+        # Start a browser session with playwright.
+        playwright = await async_playwright().start()
+        firefox = playwright.firefox
+        browser = await firefox.launch(headless=True)
 
-    logging.info('\nWelcome to the AvalonBay scraper.\n')
-    logging.info(f'Concurrency: Scraping {concurrency} cities at a time.\n')
+        logging.info('\nWelcome to the AvalonBay scraper.\n')
+        logging.info(f'Concurrency: Scraping {concurrency} cities at a time.\n')
 
-    start_time = datetime.now()
+        start_time = datetime.now()
 
-    # Ask user to input mode. The crawler has 5 modes.
-    while True:
-        logging.info('Modes:\n\t1:  Scrape entire website.\n\t2:  Enter a state.\n\t3:  Enter apartment url.\n\t4:  Scrape states listed in "states_to_scrape.txt".\n\t5:  Scrape apartments listed in "apartments_to_scrape.txt"')
-        mode = input('\nEnter mode:\n').lower()
-        if mode == '1':
-            # Scrape all cities.
-            start_time = datetime.now()
-            logging.info('Start time: ' + str(start_time))
-            await get_website(browser)
-            break
-        elif mode == '2':
-            # Scrape all cities from a particular state.
-            input_state = input('Enter state name:\n').strip()
-            start_time = datetime.now()
-            logging.info('Start time: ' + str(start_time))
-            await get_state(browser, input_state)
-            break
-        elif mode == '3':
-            # Scrape a particular community from url.
-            community_url = input('\nExample: https://www.avaloncommunities.com/california/berkeley-apartments/avalon-berkeley\n\nEnter apartment url:\n').split('?')[0].strip().strip('/')
-            if 'https://www.avaloncommunities.com/' not in community_url:
+        # Ask user to input mode. The crawler has 5 modes.
+        while True:
+            logging.info('Modes:\n\t1:  Scrape entire website.\n\t2:  Enter a state.\n\t3:  Enter apartment url.\n\t4:  Scrape states listed in "states_to_scrape.txt".\n\t5:  Scrape cities listed in "cities_to_scrape.txt".\n\t6:  Scrape apartments listed in "apartments_to_scrape.txt"')
+            mode = input('\nEnter mode:\n').lower()
+
+            # Delete old json files output directory.
+            existing_csv_files = glob.glob(f'{this_directory}\output\*.json')
+            #logging.info('\nDeleting existing json files...')
+            for f in existing_csv_files:
+                os.remove(f)
+
+            if mode == '1':
+                # Scrape all cities.
+                start_time = datetime.now()
+                logging.info('Start time: ' + str(start_time))
+                await get_website(browser)
+                break
+            elif mode == '2':
+                # Scrape all cities from a particular state.
+                input_state = input('Enter state name:\n').strip()
+                start_time = datetime.now()
+                logging.info('Start time: ' + str(start_time))
+                await get_state(browser, input_state)
+                break
+            elif mode == '3':
+                # Scrape a particular community from url.
+                community_url = input('\nExample: https://www.avaloncommunities.com/california/berkeley-apartments/avalon-berkeley\n\nEnter apartment url:\n').split('?')[0].strip().strip('/')
+                if 'https://www.avaloncommunities.com/' not in community_url:
+                    logging.info('\n-----------------------------------------------------------------------')
+                    logging.info('Invalid url entered.\n')
+                    continue
+                start_time = datetime.now()
+                logging.info('Start time: ' + str(start_time))
+                community_url = community_url.split('#')[0].split('?')[0].strip('/')
+                await get_community_from_url(browser, community_url)
+                break
+            elif mode == '4':
+                # Scrape states listed in states_to_scrape.txt
+                start_time = datetime.now()
+                logging.info('Start time: ' + str(start_time))
+                with open(Path(this_directory, 'input/states_to_scrape.txt'), 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    for line in lines:
+                        line = line.strip()
+                        if len(line) > 1:
+                            input_state = line
+                            await get_state(browser, input_state)
+                break
+            elif mode == '5':
+                # Scrape cities listed in cities_to_scrape.txt
+                start_time = datetime.now()
+                logging.info('Start time: ' + str(start_time))
+                with open(Path(this_directory, 'input/cities_to_scrape.txt'), 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    for line in lines:
+                        line = line.strip()
+                        if len(line) > 1:
+                            city_name = line
+                            await get_city_from_name(browser, city_name)
+                break
+            elif mode == '6':
+                # Scrape apartments listed in apartments_to_scrape.txt
+                start_time = datetime.now()
+                logging.info('Start time: ' + str(start_time))
+                with open(Path(this_directory, 'input/apartments_to_scrape.txt'), 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    for line in lines:
+                        line = line.strip()
+                        if len(line) > 1:
+                            community_url = line
+                            await get_community_from_url(browser, community_url)
+                break
+            else:
                 logging.info('\n-----------------------------------------------------------------------')
-                logging.info('Invalid url entered.\n')
-                continue
-            start_time = datetime.now()
-            logging.info('Start time: ' + str(start_time))
-            community_url = community_url.split('#')[0].split('?')[0]
-            await get_community_from_url(browser, community_url)
-            break
-        elif mode == '4':
-            # Scrape states listed in states_to_scrape.txt
-            start_time = datetime.now()
-            logging.info('Start time: ' + str(start_time))
-            with open(Path(this_directory, 'input/states_to_scrape.txt'), 'r', encoding='utf-8') as f:
+                logging.info('Invalid mode entered.\n')
+
+        # Close playwright properly.    
+        await browser.close()
+        await playwright.stop()
+
+        scraping_end_time = datetime.now()
+
+        # Check stats at end of scraping.
+        # If any of the functions failed to get data more than 20% of the times, set error_state to True.
+        logging.info('\nScraping stats:')
+        logging.info(f'{total_calls_get_website}, {total_calls_get_state}, {total_calls_get_city}, {total_calls_get_city_name}, {total_calls_get_community}')
+        logging.info(f'{failed_calls_get_website}, {failed_calls_get_state}, {failed_calls_get_city}, {failed_calls_get_city_name}, {failed_calls_get_community}')
+        if (failed_calls_get_website > (0.2*total_calls_get_website)) or (failed_calls_get_state > (0.2*total_calls_get_state)) or (failed_calls_get_city > (0.2*total_calls_get_city)) or (failed_calls_get_city_name > (0.2*total_calls_get_city_name)) or (failed_calls_get_community > (0.2*total_calls_get_community)):
+            logging.info('\nStats indicate a problem with scraping.')
+            error_state = True
+
+        # Send email notification for newly added apartments to '_avalonbay_apartments.csv'.
+        global newly_added_communities
+        num_newly_added = len(newly_added_communities)
+        if num_newly_added > 0:
+            logging.info(f'\n{num_newly_added} apartments were newly added. Notifying via email.')
+            new_apartments_str = ''.join((e + '\n') for e in newly_added_communities)
+            time_now = datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
+            email_subject = 'AvalonBay Scraper - New apartments were added.'
+            email_body = f'The following {num_newly_added} apartments have been newly added to "_avalonbay_apartments.csv"\n\n{new_apartments_str}\nTime of event: {time_now}'
+            send_email(email_subject, email_body)
+
+        # Check for empty files in output folder.
+        empty_files = []
+        csv_files = glob.glob(f'{this_directory}\output\*.csv')
+        json_files = glob.glob(f'{this_directory}\output\*.json')
+        for file_path in csv_files:
+            with open(file_path, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
-                for line in lines:
-                    line = line.strip()
-                    if len(line) > 1:
-                        input_state = line
-                        await get_state(browser, input_state)
-            break
-        elif mode == '5':
-            # Scrape apartments listed in apartments_to_scrape.txt
-            start_time = datetime.now()
-            logging.info('Start time: ' + str(start_time))
-            with open(Path(this_directory, 'input/apartments_to_scrape.txt'), 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-                for line in lines:
-                    line = line.strip()
-                    if len(line) > 1:
-                        community_url = line
-                        await get_community_from_url(browser, community_url)
-            break
-        else:
-            logging.info('\n-----------------------------------------------------------------------')
-            logging.info('Invalid mode entered.\n')
+            if len(lines) < 2:     # First line is headers.
+                file_name = file_path.split('\\')[-1]
+                empty_files.append(file_name)
+        for file_path in json_files:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+            if len(file_content) < 1:
+                file_name = file_path.split('\\')[-1]
+                empty_files.append(file_name)
 
+        # Send email notification for empty files.
+        if (error_state == False) and (len(empty_files) > 0):    # If error_state is true, do not send a separate email for empty files.
+            logging.info('\nSome files are empty...')
+            logging.info('Sending email notification...')
+            empty_files_str = ''.join((e + '\n') for e in empty_files)
+            time_now = datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
+            email_subject = 'AvalonBay Scraper - Empty csv/json files.'
+            email_body = f'The following files were created during scraping but they are empty: \n\n{empty_files_str}\nTime of event:  {time_now}'
+            send_email(email_subject, email_body)
 
-    scraping_end_time = datetime.now()
+        logging.info('\nTotal units scraped: ' + str(num_scraped_units))
+      
+        logging.info('\nScraping started: ' + str(start_time))
+        logging.info('Scraping ended:   ' + str(scraping_end_time))
+        logging.info('Script ended:     ' + str(datetime.now()))
 
-    logging.info('\nScraping started: ' + str(start_time))
-    logging.info('Scraping ended:   ' + str(scraping_end_time))
-    #logging.info('Script ended:     ' + str(datetime.now()))
-
-    # Close playwright properly.    
-    await browser.close()
-    await playwright.stop()
+    except:
+        error_state = True
+        logging.info('Error in main function.')
+        logging.exception('exception:' )
+    finally:
+        # Send an email if error_state is True.
+        if error_state == True:
+            logging.info('\nThere was an error in scraping.\nSending error notification via email...')
+            time_now = datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
+            email_subject = 'AvalonBay Scraper - Error in scraping.'
+            email_body = f'There was an error while scraping the website. Please check the log file for details.\nTime of event:  {time_now}'
+            send_email(email_subject, email_body)
 
 
 if __name__ == '__main__':

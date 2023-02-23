@@ -11,7 +11,7 @@ from pathlib import Path
 rb_directory = Path(__file__).parent.parent.parent.parent
 
 # Absolute path to proxy file.
-proxy_path = rb_directory / 'proxies/proxies.txt'
+proxy_path = rb_directory / 'global_config/proxies.txt'
 
 
 

@@ -1,5 +1,18 @@
 
 
+avalonbay_v1.1:
+    (done) Include apartment name in email when new apartment gets added.
+    (done) Put a counter on the units.
+    (done) Json files should only be deleted after user selects a mode.
+
+    (TODO) Apartment ID's are pending.
+    (TODO) Notify on removed communities.
+    (TODO) All other fancy features. Check past scrapes to see if there are any missing features.
+    (TODO) Pyinstaller.
+    (TODO) Batch file?
+    (TODO) Comments and cleaning.
+
+
 avalonbay_v1.0:
     (done) 5 Modes: Website, state name, State/city file, input url, scrape by a file (a list of apt id and urls)
     (done) Download images.
@@ -9,6 +22,13 @@ avalonbay_v1.0:
         Fix addresses.
         Remove duplicate rows.
     (done) Reduce network usage. Abort unnecessary requests.
+    (done) Verify integrity of data.
+    (done) Retries.
+	(done) Exception handling.
+    (done) Delete old json files when scraping.
+    (done) Remove unecessary sleeps and waits.
+    (done) Remove unecessary log statements.
+    (done) Scrape all important fields.
     (test) Output format:
         Follow JSON example.
         comm url, comm name, comm address, the obvious stuff, Furnish price, specials, details
@@ -26,26 +46,12 @@ avalonbay_v1.0:
     (test) Config file for email, concurrency
     (test) Change data format.
     (test) Do not scrape same community multiple times.
-    (TODO) Verify integrity of data.
-    (TODO) Data to scrape.
-        Check 'pending' fields marked in code.
-        rest. UnitID is not fully displayed on the city page. Have to open community page. Example: https://www.avaloncommunities.com/new-york/long-island-apartments/avalon-harbor-isle/
-    (TODO) Master file on states/cities. Only scrape states/cities mentioned in the file.
-    (TODO) Notifications:
-        Empty file notification
-        Error notifications. (Audible alarm not required, send email)
-    \   Notify report on newly added and removed communities.
-    (TODO) All other fancy features. Check past scrapes to see if there are any missing features.
-    (TODO) Retries.
-	(TODO) Exception handling.
-    (TODO) Should terminal remain open in case of error?
-    (TODO) Should old output files be deleted when scraping.
-    (TODO) Pyinstaller.
-    (TODO) Batch file?
-    (TODO) Remove unecessary sleeps and waits.
-    (TODO) Remove unecessary log statements.
-    (TODO) Pip installations from script.
-    (TODO) Comments and cleaning.
+    (test) Master file on states/cities. Only scrape states/cities mentioned in the file.
+    (done) Pip installations from script.
+    (done) Notifications:
+        done. Empty file notification
+        done. Error notifications. (Audible alarm not required, send email)
+        done. Notify report on newly added communities.
 
 
 Misc:

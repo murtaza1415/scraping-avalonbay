@@ -21,8 +21,8 @@ def send_email(subject, body):
     
     email_recipient = config_global['email']['email_recipient']
 
-    yandex_user = 'scraper.rb@yandex.com'
-    yandex_password = 'zqP7H#r8Ytrf&A8'
+    yandex_user = 'scraper.apartment@yandex.com'
+    yandex_password = 'fiawskomspgtkcpd'
 
     msg = EmailMessage()
     msg.set_content(body)
