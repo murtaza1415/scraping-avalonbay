@@ -1,16 +1,41 @@
+Before submission:
+    Copy essenstial files to submissison folder. (execute.py, python_files, local_config, input, schedule_tasks)
+    Delete unecessary files.
+    Change variables.
+        (default concurrency: 3)
+    Create zip file with version number.
+    Test.
+
+pending:
+    (TODO) All other fancy features. Check past scrapes to see if there are any missing features.
+    (TODO) Pyinstaller.
+    (TODO) Ability to send emails to multiple addresses. (use either gmail or rentalbeast's private smtp)
+
+avalonbay_v1.3:
+    (done) Change time format.
+    (done) Outlook removing line breaks in email.
+    (done) Remove extra usernames and passwords from email_.py
+
+avalonbay_v1.2:
+    (done) Fix date format.
+    (done) Remove apartment name from json.
+    (done) Remove apartment id from both json and csv.
+    (done) Don't add package name to unit_details.
+    (done) Move furnished price to unit_details.
+    (done) floor_plan_name is missing
+    (done) Email on success. Includes apartment and unit count.
+    (done) Email on missing apartments.
+        ensure website mode only.
+    (done) Combine all emails except error email.
+    (done) Remove extra log statements.
+    (done) Comments and cleaning.
+    (done) Batch files for mode 1, 4, 6.
 
 
 avalonbay_v1.1:
     (done) Include apartment name in email when new apartment gets added.
     (done) Put a counter on the units.
     (done) Json files should only be deleted after user selects a mode.
-
-    (TODO) Apartment ID's are pending.
-    (TODO) Notify on removed communities.
-    (TODO) All other fancy features. Check past scrapes to see if there are any missing features.
-    (TODO) Pyinstaller.
-    (TODO) Batch file?
-    (TODO) Comments and cleaning.
 
 
 avalonbay_v1.0:
@@ -237,3 +262,42 @@ async def get_community_without_opening(page, community, proxy):
             logging.info(f'Exception in get_community: {community_url}')
             logging.info(f'Exception in attempt {attempt_number}')
             logging.exception('exception: ')
+
+
+
+
+
+
+
+
+
+
+# Send email notification for newly added apartments to '_avalonbay_apartments.csv'.
+# global newly_added_communities
+# num_newly_added = len(newly_added_communities)
+# if num_newly_added > 0:
+#     logging.info(f'\n{num_newly_added} apartments were newly added. Notifying via email.')
+#     new_apartments_str = ''.join((e + '\n') for e in newly_added_communities)
+#     time_now = datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
+#     email_subject = 'AvalonBay Scraper - New apartments were added.'
+#     email_body = f'The following {num_newly_added} apartments have been newly added to "_avalonbay_apartments.csv"\n\n{new_apartments_str}\nTime of event: {time_now}'
+#     send_email(email_subject, email_body)
+
+
+
+# # Send email notification for empty files.
+# if (error_state == False) and (len(empty_files) > 0):    # If error_state is true, do not send a separate email for empty files.
+#     logging.info('\nSome files are empty...')
+#     logging.info('Sending email notification...')
+#     empty_files_str = ''.join((e + '\n') for e in empty_files)
+#     time_now = datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
+#     email_subject = 'AvalonBay Scraper - Empty csv/json files.'
+#     email_body = f'The following files were created during scraping but they are empty: \n\n{empty_files_str}\nTime of event:  {time_now}'
+#     send_email(email_subject, email_body)
+
+# logging.info('\n')
+# logging.info(scraped_communities)
+# missing_communities = get_missing_communities('1')
+# missing_communities_str = ''.join((e + '\n') for e in missing_communities)
+# logging.info('\n')
+# logging.info(missing_communities_str)

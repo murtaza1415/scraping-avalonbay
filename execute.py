@@ -53,11 +53,13 @@ this_directory = Path(__file__).parent
 
 # Absolute path of configuration files.
 config_file_local = this_directory / 'local_config/local_config.ini'
-#config_file_global = rb_directory / 'global_config/global_config.ini'
 
-newly_added_communities = []
-scraped_communities = []
-num_scraped_units = 0
+# Headers for the apartments csv file.
+community_csv_headers = ['apartment_name', 'apartment_url', 'street_number', 'street_name', 'city', 'state', 'zip_code']
+
+newly_added_communities = []          # List of communities that newly got added to apartments csv file.
+scraped_communities = set()           # Will contain url of each community that is scraped.
+num_scraped_units = 0                 # A counter of the apartment units scraped.
 
 # To keep track of error state.
 error_state = False
@@ -76,11 +78,11 @@ failed_calls_get_city = 0
 failed_calls_get_city_name = 0
 failed_calls_get_community = 0
 
-community_csv_headers = ['apartment_id', 'apartment_name', 'apartment_url', 'street_number', 'street_name', 'city', 'state', 'zip_code']
-
 
 
 async def get_website(browser):
+    # This function will extract url of each city in the website.
+    # It will then call get_city on each city.
     global total_calls_get_website
     total_calls_get_website += 1
     max_attempts = 3
@@ -88,7 +90,7 @@ async def get_website(browser):
         try:
             proxy = get_proxy()
             async with aiohttp.ClientSession() as session:
-                async with session.get('https://www2.avaloncommunities.com/apartment-locations', timeout=60, proxy=proxy[3]) as response:
+                async with session.get('https://www2.avaloncommunities.com/apartment-locations', timeout=70, proxy=proxy[3]) as response:
                     response_html = await response.text()
                     response_status = response.status
 
@@ -125,6 +127,8 @@ async def get_website(browser):
 
 
 async def get_state(browser, input_state):
+    # This function will extract url of each city in the state.
+    # It will then call get_city on each city.
     global total_calls_get_state
     total_calls_get_state += 1
     logging.info(f'\nFetching state: {input_state}')
@@ -133,7 +137,7 @@ async def get_state(browser, input_state):
         try:
             proxy = get_proxy()
             async with aiohttp.ClientSession() as session:
-                async with session.get('https://www2.avaloncommunities.com/apartment-locations', timeout=60, proxy=proxy[3]) as response:
+                async with session.get('https://www2.avaloncommunities.com/apartment-locations', timeout=70, proxy=proxy[3]) as response:
                     response_html = await response.text()
                     response_status = response.status
 
@@ -171,6 +175,8 @@ async def get_state(browser, input_state):
 
 
 async def get_city_from_name(browser, input_city_name):
+    # This function will find the city whose name matches the input_city_name.
+    # It will then call get_city on the city.
     global total_calls_get_city_name
     total_calls_get_city_name += 1
     max_attempts = 3
@@ -178,7 +184,7 @@ async def get_city_from_name(browser, input_city_name):
         try:
             proxy = get_proxy()
             async with aiohttp.ClientSession() as session:
-                async with session.get('https://www2.avaloncommunities.com/apartment-locations', timeout=60, proxy=proxy[3]) as response:
+                async with session.get('https://www2.avaloncommunities.com/apartment-locations', timeout=70, proxy=proxy[3]) as response:
                     response_html = await response.text()
                     response_status = response.status
 
@@ -216,6 +222,8 @@ async def get_city_from_name(browser, input_city_name):
 
 
 async def get_city(browser, city_url, city_name, city_state):
+    # This function will extract url of each apartment/community in the city.
+    # It will then call get_community on each apartment.
     global semaphore_cities
     async with semaphore_cities:    # The semaphore controls how many cities can be scraped simultaneously.
         global total_calls_get_city
@@ -241,7 +249,7 @@ async def get_city(browser, city_url, city_name, city_state):
                 await page.route("**/*.{png,jpg,jpeg}", lambda route: route.abort())
                 await page.route("**/*", lambda route: route.abort() if route.request.resource_type == "image"  else route.continue_())
 
-                await page.goto(city_url, timeout=60000)
+                await page.goto(city_url, timeout=70000)
 
                 community_button = page.locator('xpath=//button[@id="community-toggle"]')
 
@@ -277,7 +285,6 @@ async def get_city(browser, city_url, city_name, city_state):
 
                 for community in communities:
                     if community['community_url'] not in scraped_communities:    # Do not scrape the same community more than once.
-                        scraped_communities.append(community['community_url'])
                         await get_community_from_url(browser, community['community_url'])
                     else:
                         logging.info(logging.info(f'-- community is duplicate. not scraping again: {community_url}'))
@@ -301,6 +308,8 @@ async def get_city(browser, city_url, city_name, city_state):
 
 
 async def get_community_from_url(browser, community_url):
+    # This function will extract each unit it the community/apartment.
+    # It will then write the data to csv and json files.
     global total_calls_get_community
     total_calls_get_community += 1
     logging.info(f'\nFetching apartment: {community_url}')
@@ -310,6 +319,8 @@ async def get_community_from_url(browser, community_url):
     for attempt_number in range(1,max_attempts+1):
         try:
             community_url = community_url.split('#')[0].split('?')[0].strip('/')
+            scraped_communities.add(community_url)    # The community is added to scraped_communities before the function actually completes, to avoid making multiple requests to the same community. This will save resources and make the script faster.
+            
             proxy = get_proxy()
             context = await browser.new_context(
                 viewport = {'height': 757, 'width': 1368},
@@ -325,7 +336,7 @@ async def get_community_from_url(browser, community_url):
             await page.route("**/*.{png,jpg,jpeg}", lambda route: route.abort())
             await page.route("**/*", lambda route: route.abort() if route.request.resource_type == "image"  else route.continue_())
 
-            await page.goto(community_url, timeout=60000)
+            await page.goto(community_url, timeout=70000)
 
             community_name = await page.locator('xpath=//h1[@id="cdph-title-id"]').inner_text()
             community_name = community_name.strip()
@@ -336,6 +347,7 @@ async def get_community_from_url(browser, community_url):
             community_phone = await page.locator('xpath=//a[contains(@href,"tel:")]').first.inner_text()
             community_phone = data_manipulation.format_phone(community_phone)
 
+            # A lot of the data is embedded inside a script tag.
             embedded_script = await page.locator('xpath=//script[@id="fusion-metadata"]').inner_html()
             
             json_start_index = embedded_script.index('[{"unitId":')
@@ -353,12 +365,11 @@ async def get_community_from_url(browser, community_url):
             times_string = embedded_script[time_start_index:time_end_index].replace('"officeHours":[','',1)
             times_string = times_string.replace('"','').replace(',',', ')
 
+            # Create a dict object that will be later written to a json file.
             community_data = [
                 {
                     "additional_data": {
-                        "original_url": community_url,
-                        "apartment_name": community_name,
-                        "apartment_id": "pending"
+                        "original_url": community_url
                     },
                     "apartment_address_data": {
                         "city": address_city,
@@ -391,9 +402,9 @@ async def get_community_from_url(browser, community_url):
             with open(Path(this_directory / 'output/_avalonbay_apartments.csv'), 'a', encoding='utf-8', newline='') as f:
                 writer = csv.writer(f)
                 if community_url not in file_content:    # Do not add duplicates. Using community_url as unique identifier.
-                    csv_row = ['pending', community_name, community_url, address_number, address_street, address_city, address_state, address_zip]
+                    csv_row = [community_name, community_url, address_number, address_street, address_city, address_state, address_zip]
                     writer.writerow(csv_row)
-                    newly_added_communities.append(community_name + ' - ' + community_url)
+                    newly_added_communities.append(f'• {community_name} - {address_number} {address_street}, {address_city}, {address_state} {address_zip} - {community_url}')
                 else:
                     logging.info(f'-- community already in file: {community_url}')
 
@@ -428,8 +439,12 @@ async def get_community_from_url(browser, community_url):
 
             logging.info(f'Num of units: {num_units}')
             
+            # Extract data for all the units.
+            # Foe each unit data is extracted in 2 steps.
+            # 1) Available data is extracted from the html.
+            # 2) Remaining data items are extracted from embedded_json.
             for i in range(num_units):
-                # Extract unit data from cards.
+                # 1) Extract unit data from cards.
                 unit_card = unit_cards.nth(i)
                 title = await unit_card.locator('xpath=.//div[@class="ant-card-meta-title"]').inner_text()
                 unit_number = title.split('\n')[0].replace('Apt.', '',1).strip()
@@ -451,8 +466,9 @@ async def get_community_from_url(browser, community_url):
                 unit_img_url = parse.urljoin(community_url, unit_img_url)  # Some image urls like '/pf/resources/img/notfound-borderless.png?d=80' need joining.
                 unit_img_filename = get_image_filename(unit_img_url)
 
-                # Extract remaining unit data from embedded_json_units
+                # 2) Extract remaining unit data from embedded_json_units
                 for unit_json in embedded_json_units:
+                    # In order to find the object associated with the unit in the json, the unit_number has to manipulated to remove the building number.
                     if '-' in unit_number:
                         unit_number_half = unit_number.split('-')[1]    # Remove number before dash. (remove the building number) 
                     else:
@@ -470,7 +486,7 @@ async def get_community_from_url(browser, community_url):
                             unit_sqft = str(unit_sqft)
                         
                         unit_floorplan_name = None
-                        if 'floorplan' in unit_json:
+                        if 'floorPlan' in unit_json:
                             unit_floorplan_name = unit_json['floorPlan']['name']
                             unit_floorplan_name = unit_floorplan_name.split('-')[0]
                         
@@ -497,7 +513,17 @@ async def get_community_from_url(browser, community_url):
                         if 'finishPackage' in unit_json:
                             package_name = unit_json['finishPackage']['name']
                             package_disc = unit_json['finishPackage']['description']
-                            unit_package = package_name + ': ' + package_disc
+                            unit_package = package_disc
+                        
+                        # Add unit_package and unit_furnish_price to unit_details.
+                        unit_details = []
+                        if unit_package:
+                            unit_details.append(unit_package)
+                        if unit_furnish_price:
+                            unit_details.append(f'Furnished starting at {unit_furnish_price}')
+                        unit_details = '\n'.join(s for s in unit_details)
+                        if unit_details == '':
+                            unit_details = None
                         
                         unit_virtual = None
                         if 'virtualTour' in unit_json:
@@ -522,7 +548,9 @@ async def get_community_from_url(browser, community_url):
                 #logging.info(f'Move in: {unit_adate}')
                 #logging.info(f'Specials: {unit_specials}')
                 #logging.info(f'Packages: {unit_package}')
+                #logging.info(f'Details: {unit_details}')
 
+                # Add the unit's data to community_data dict, inside the listings object.
                 community_data[0]['listings'].append(
                     {
                         "available": unit_adate,
@@ -538,7 +566,7 @@ async def get_community_from_url(browser, community_url):
                         "image_filename": unit_img_filename,
                         "virtual_tour": unit_virtual,
                         "specials": unit_specials,
-                        "unit_details": unit_package
+                        "unit_details": unit_details
                     }
                 )
 
@@ -599,6 +627,88 @@ async def download_image(url, proxy):
 
 
 
+def get_missing_communities(mode):
+    # This function will return a list of communities that are present in the apartments csv file, but weren't found on the website.
+    missing_communities = []
+    
+    if mode != '1':    # This function is only intended to work with mode website.
+        return []
+    else:      # Mode is 1 (This logic only works if entire website was scraped.)
+        file_communities = []
+        with open(Path(this_directory / 'output/_avalonbay_apartments.csv'), 'r', encoding='utf-8',  newline='') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                file_communities.append(row)
+
+        for file_comm in file_communities[1:]:     # Ignore header row.
+            file_comm_url = file_comm[1]
+            #logging.info(file_comm_url)
+            if file_comm_url not in scraped_communities:   # Community is missing.
+                #logging.info('-------------missing community')
+                file_comm_apt_name = file_comm[0]
+                file_comm_address_number = file_comm[2]
+                file_comm_address_street =  file_comm[3]
+                file_comm_address_city =  file_comm[4]
+                file_comm_address_state =  file_comm[5]
+                file_comm_address_zip =  file_comm[6]
+                missing_communities.append(f'• {file_comm_apt_name} - {file_comm_address_number} {file_comm_address_street}, {file_comm_address_city}, {file_comm_address_state} {file_comm_address_zip} - {file_comm_url}')
+    
+    return missing_communities
+    
+
+
+def get_empty_files():
+    # This function will return a list of all empty csv and json files in the output folder.
+    empty_files = []
+    
+    csv_files = glob.glob(f'{this_directory}\output\*.csv')
+    json_files = glob.glob(f'{this_directory}\output\*.json')
+    for file_path in csv_files:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        if len(lines) < 2:     # First line is headers.
+            file_name = file_path.split('\\')[-1]
+            empty_files.append(file_name)
+    for file_path in json_files:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            file_content = f.read()
+        if len(file_content) < 1:
+            file_name = file_path.split('\\')[-1]
+            empty_files.append(file_name)
+    
+    return empty_files
+
+
+
+def generate_report(scraping_start_time, scraping_end_time, num_scraped_communities, num_scraped_units, empty_files, newly_added_communities, missing_communities):
+    # This function will generate a detailed report once scraping is complete.
+    report_items = []
+
+    intro = f'Scrape has been completed! Please view the detailed report below.\n\nStart Time: {scraping_start_time}   \t\r\nEnd Time: {scraping_end_time}   \t\r\nApartments scraped: {num_scraped_communities}   \t\r\nUnits scraped: {num_scraped_units}   \t\r\nEmpty files: {len(empty_files)}   \t\r\nNew apartments: {len(newly_added_communities)}   \t\r\nMissing apartments: {len(missing_communities)}\n\n'
+
+    report_items.append(intro)
+
+    if len(empty_files) > 0:
+        empty_files_str = ''.join((e + '\n') for e in empty_files)
+        item = f'List of empty files:\n{empty_files_str}\n\n'
+        report_items.append(item)
+
+    if len(newly_added_communities) > 0:
+        new_apartments_str = ''.join((e + '\n') for e in newly_added_communities)
+        item = f'List of New apartments:\n{new_apartments_str}\n\n'
+        report_items.append(item)
+
+    if len(missing_communities) > 0:
+        missing_communities_str = ''.join((e + '\n') for e in missing_communities)
+        item = f'List of Missing apartments:\n{missing_communities_str}\n\n'
+        report_items.append(item)
+
+    report = '\n'.join(item for item in report_items)
+
+    return report
+
+    
+
 async def main():
     # Use the global error_state variable to check and update error state if anything goes wrong.
     global error_state
@@ -651,12 +761,15 @@ async def main():
         logging.info('\nWelcome to the AvalonBay scraper.\n')
         logging.info(f'Concurrency: Scraping {concurrency} cities at a time.\n')
 
-        start_time = datetime.now()
-
         # Ask user to input mode. The crawler has 5 modes.
         while True:
-            logging.info('Modes:\n\t1:  Scrape entire website.\n\t2:  Enter a state.\n\t3:  Enter apartment url.\n\t4:  Scrape states listed in "states_to_scrape.txt".\n\t5:  Scrape cities listed in "cities_to_scrape.txt".\n\t6:  Scrape apartments listed in "apartments_to_scrape.txt"')
-            mode = input('\nEnter mode:\n').lower()
+            if len(sys.argv) == 1:
+                logging.info('Modes:\n\t1:  Scrape entire website.\n\t2:  Enter a state.\n\t3:  Enter apartment url.\n\t4:  Scrape states listed in "states_to_scrape.txt".\n\t5:  Scrape cities listed in "cities_to_scrape.txt".\n\t6:  Scrape apartments listed in "apartments_to_scrape.txt"')
+                mode = input('\nEnter mode:\n').lower()
+            elif len(sys.argv) == 2 :
+                mode = sys.argv[1]
+
+            logging.info(f'Selected mode: {mode}' )
 
             # Delete old json files output directory.
             existing_csv_files = glob.glob(f'{this_directory}\output\*.json')
@@ -666,14 +779,14 @@ async def main():
 
             if mode == '1':
                 # Scrape all cities.
-                start_time = datetime.now()
+                start_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
                 logging.info('Start time: ' + str(start_time))
                 await get_website(browser)
                 break
             elif mode == '2':
                 # Scrape all cities from a particular state.
                 input_state = input('Enter state name:\n').strip()
-                start_time = datetime.now()
+                start_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
                 logging.info('Start time: ' + str(start_time))
                 await get_state(browser, input_state)
                 break
@@ -684,14 +797,14 @@ async def main():
                     logging.info('\n-----------------------------------------------------------------------')
                     logging.info('Invalid url entered.\n')
                     continue
-                start_time = datetime.now()
+                start_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
                 logging.info('Start time: ' + str(start_time))
                 community_url = community_url.split('#')[0].split('?')[0].strip('/')
                 await get_community_from_url(browser, community_url)
                 break
             elif mode == '4':
                 # Scrape states listed in states_to_scrape.txt
-                start_time = datetime.now()
+                start_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
                 logging.info('Start time: ' + str(start_time))
                 with open(Path(this_directory, 'input/states_to_scrape.txt'), 'r', encoding='utf-8') as f:
                     lines = f.readlines()
@@ -703,7 +816,7 @@ async def main():
                 break
             elif mode == '5':
                 # Scrape cities listed in cities_to_scrape.txt
-                start_time = datetime.now()
+                start_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
                 logging.info('Start time: ' + str(start_time))
                 with open(Path(this_directory, 'input/cities_to_scrape.txt'), 'r', encoding='utf-8') as f:
                     lines = f.readlines()
@@ -715,7 +828,7 @@ async def main():
                 break
             elif mode == '6':
                 # Scrape apartments listed in apartments_to_scrape.txt
-                start_time = datetime.now()
+                start_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
                 logging.info('Start time: ' + str(start_time))
                 with open(Path(this_directory, 'input/apartments_to_scrape.txt'), 'r', encoding='utf-8') as f:
                     lines = f.readlines()
@@ -733,7 +846,7 @@ async def main():
         await browser.close()
         await playwright.stop()
 
-        scraping_end_time = datetime.now()
+        scraping_end_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
 
         # Check stats at end of scraping.
         # If any of the functions failed to get data more than 20% of the times, set error_state to True.
@@ -743,63 +856,50 @@ async def main():
         if (failed_calls_get_website > (0.2*total_calls_get_website)) or (failed_calls_get_state > (0.2*total_calls_get_state)) or (failed_calls_get_city > (0.2*total_calls_get_city)) or (failed_calls_get_city_name > (0.2*total_calls_get_city_name)) or (failed_calls_get_community > (0.2*total_calls_get_community)):
             logging.info('\nStats indicate a problem with scraping.')
             error_state = True
-
-        # Send email notification for newly added apartments to '_avalonbay_apartments.csv'.
-        global newly_added_communities
-        num_newly_added = len(newly_added_communities)
-        if num_newly_added > 0:
-            logging.info(f'\n{num_newly_added} apartments were newly added. Notifying via email.')
-            new_apartments_str = ''.join((e + '\n') for e in newly_added_communities)
-            time_now = datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
-            email_subject = 'AvalonBay Scraper - New apartments were added.'
-            email_body = f'The following {num_newly_added} apartments have been newly added to "_avalonbay_apartments.csv"\n\n{new_apartments_str}\nTime of event: {time_now}'
-            send_email(email_subject, email_body)
-
+        
         # Check for empty files in output folder.
-        empty_files = []
-        csv_files = glob.glob(f'{this_directory}\output\*.csv')
-        json_files = glob.glob(f'{this_directory}\output\*.json')
-        for file_path in csv_files:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-            if len(lines) < 2:     # First line is headers.
-                file_name = file_path.split('\\')[-1]
-                empty_files.append(file_name)
-        for file_path in json_files:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                file_content = f.read()
-            if len(file_content) < 1:
-                file_name = file_path.split('\\')[-1]
-                empty_files.append(file_name)
+        empty_files = get_empty_files()
+        
+        # Check for communities that are in the apartments csv file, but no longer on the website.
+        missing_communities = get_missing_communities(mode)
+        
+        global newly_added_communities
+        global num_scraped_units
+        global scraped_communities
+        num_scraped_communities = len(scraped_communities)
+        
+        # Generate a detailed report on the scrape.
+        scraping_report = generate_report(start_time, scraping_end_time, num_scraped_communities, num_scraped_units, empty_files, newly_added_communities, missing_communities)
 
-        # Send email notification for empty files.
-        if (error_state == False) and (len(empty_files) > 0):    # If error_state is true, do not send a separate email for empty files.
-            logging.info('\nSome files are empty...')
-            logging.info('Sending email notification...')
-            empty_files_str = ''.join((e + '\n') for e in empty_files)
-            time_now = datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
-            email_subject = 'AvalonBay Scraper - Empty csv/json files.'
-            email_body = f'The following files were created during scraping but they are empty: \n\n{empty_files_str}\nTime of event:  {time_now}'
-            send_email(email_subject, email_body)
-
-        logging.info('\nTotal units scraped: ' + str(num_scraped_units))
+        logging.info('\nTotal apartments scraped: ' + str(num_scraped_communities))
+        logging.info('Total units scraped: ' + str(num_scraped_units))
+        logging.info(f'Empty files: {len(empty_files)}')
+        logging.info(f'New apartments: {len(newly_added_communities)}')
+        logging.info(f'Missing apartments: {len(missing_communities)}')
       
         logging.info('\nScraping started: ' + str(start_time))
         logging.info('Scraping ended:   ' + str(scraping_end_time))
-        logging.info('Script ended:     ' + str(datetime.now()))
+        logging.info('Script ended:     ' + str(datetime.now().strftime('%Y-%m-%d %I:%M %p')))
 
     except:
         error_state = True
         logging.info('Error in main function.')
         logging.exception('exception:' )
-    finally:
-        # Send an email if error_state is True.
+    finally:    # Regardless of whether there was an exception in main function or not, there are other ways that error_state can be true. So check error_state and act accordingly.
         if error_state == True:
+            # Send an email notifying that there was an error.
             logging.info('\nThere was an error in scraping.\nSending error notification via email...')
-            time_now = datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
-            email_subject = 'AvalonBay Scraper - Error in scraping.'
-            email_body = f'There was an error while scraping the website. Please check the log file for details.\nTime of event:  {time_now}'
+            time_now = datetime.now().strftime('%Y-%m-%d %I:%M %p')
+            email_subject = 'Error in AvalonBay Scraper'
+            email_body = f'There was a problem while scraping the website. Please check the log file for details.   \t\r\nTime of event:  {time_now}'
             send_email(email_subject, email_body)
+        else:
+            # Send an email that contains scraping report.
+            logging.info('Sending report via email...')
+            email_subject = 'AvalonBay Scraper - Completion Report'
+            send_email(email_subject, scraping_report)
+            
+            
 
 
 if __name__ == '__main__':

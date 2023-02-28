@@ -14,8 +14,8 @@ def manipulate_date(date):
     if len(day) == 1:
         day = '0' + day
     
-    # yyyy/mm/dd    
-    date = year + '/' + month + '/' + day
+    # yyyy-mm-dd    
+    date = year + '-' + month + '-' + day
 
     return date
 
