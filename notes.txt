@@ -11,6 +11,10 @@ pending:
     (TODO) Pyinstaller.
     (TODO) Ability to send emails to multiple addresses. (use either gmail or rentalbeast's private smtp)
 
+avalonbay_v1.4:
+    (done) Update the report on Avalon to include existing apartments as well. 
+	(eone) Write report in output folder.
+
 avalonbay_v1.3:
     (done) Change time format.
     (done) Outlook removing line breaks in email.

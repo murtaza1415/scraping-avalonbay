@@ -57,9 +57,11 @@ config_file_local = this_directory / 'local_config/local_config.ini'
 # Headers for the apartments csv file.
 community_csv_headers = ['apartment_name', 'apartment_url', 'street_number', 'street_name', 'city', 'state', 'zip_code']
 
-newly_added_communities = []          # List of communities that newly got added to apartments csv file.
-scraped_communities = set()           # Will contain url of each community that is scraped.
+scraped_communities = set()           # Will contain url of each community that is scraped. Intended to avoid opening of duplicate communities.
 num_scraped_units = 0                 # A counter of the apartment units scraped.
+
+existing_scraped_communities = []             # List of communities (formatted strings) that were scraped, and already existed in the apartments file. Intended for report.
+newly_scraped_communities = []          # List of communities (formatted strings) that were scraped, and newly got added to apartments csv file. Intended for report.
 
 # To keep track of error state.
 error_state = False
@@ -404,9 +406,10 @@ async def get_community_from_url(browser, community_url):
                 if community_url not in file_content:    # Do not add duplicates. Using community_url as unique identifier.
                     csv_row = [community_name, community_url, address_number, address_street, address_city, address_state, address_zip]
                     writer.writerow(csv_row)
-                    newly_added_communities.append(f'• {community_name} - {address_number} {address_street}, {address_city}, {address_state} {address_zip} - {community_url}')
+                    newly_scraped_communities.append(f'• {community_name} - {address_number} {address_street}, {address_city}, {address_state} {address_zip} - {community_url}')
                 else:
                     logging.info(f'-- community already in file: {community_url}')
+                    existing_scraped_communities.append(f'• {community_name} - {address_number} {address_street}, {address_city}, {address_state} {address_zip} - {community_url}')
 
             # Create json file for this community.
             json_file_name = slugify(f'{address_state}_{address_city}_{community_name}').replace('-', '_') + '.json'
@@ -680,11 +683,11 @@ def get_empty_files():
 
 
 
-def generate_report(scraping_start_time, scraping_end_time, num_scraped_communities, num_scraped_units, empty_files, newly_added_communities, missing_communities):
+def generate_report(scraping_start_time, scraping_end_time, num_scraped_communities, num_scraped_units, empty_files, existing_scraped_communities, newly_scraped_communities, missing_communities):
     # This function will generate a detailed report once scraping is complete.
     report_items = []
 
-    intro = f'Scrape has been completed! Please view the detailed report below.\n\nStart Time: {scraping_start_time}   \t\r\nEnd Time: {scraping_end_time}   \t\r\nApartments scraped: {num_scraped_communities}   \t\r\nUnits scraped: {num_scraped_units}   \t\r\nEmpty files: {len(empty_files)}   \t\r\nNew apartments: {len(newly_added_communities)}   \t\r\nMissing apartments: {len(missing_communities)}\n\n'
+    intro = f'Scrape has been completed! Please view the detailed report below.\n\nStart Time: {scraping_start_time.strftime("%Y-%m-%d %I:%M %p")}   \t\r\nEnd Time: {scraping_end_time.strftime("%Y-%m-%d %I:%M %p")}   \t\r\nApartments scraped: {num_scraped_communities}   \t\r\nUnits scraped: {num_scraped_units}   \t\r\nEmpty files: {len(empty_files)}   \t\r\nExisting apartments: {len(existing_scraped_communities)}   \t\r\nNew apartments: {len(newly_scraped_communities)}   \t\r\nMissing apartments: {len(missing_communities)}\n\n'
 
     report_items.append(intro)
 
@@ -693,17 +696,28 @@ def generate_report(scraping_start_time, scraping_end_time, num_scraped_communit
         item = f'List of empty files:\n{empty_files_str}\n\n'
         report_items.append(item)
 
-    if len(newly_added_communities) > 0:
-        new_apartments_str = ''.join((e + '\n') for e in newly_added_communities)
-        item = f'List of New apartments:\n{new_apartments_str}\n\n'
+    if len(newly_scraped_communities) > 0:
+        new_apartments_str = ''.join((e + '\n') for e in newly_scraped_communities)
+        item = f'New apartments scraped:\n{new_apartments_str}\n\n'
         report_items.append(item)
 
     if len(missing_communities) > 0:
         missing_communities_str = ''.join((e + '\n') for e in missing_communities)
-        item = f'List of Missing apartments:\n{missing_communities_str}\n\n'
+        item = f'Missing apartments:\n{missing_communities_str}\n\n'
+        report_items.append(item)
+
+    if len(existing_scraped_communities) > 0:
+        existing_apartments_str = ''.join((e + '\n') for e in existing_scraped_communities)
+        item = f'Existing apartments scraped:\n{existing_apartments_str}\n\n'
         report_items.append(item)
 
     report = '\n'.join(item for item in report_items)
+
+
+    # Write report to reports folder.
+    time_now = datetime.now()
+    with open(this_directory / f'output/reports/report_{time_now.strftime("%Y_%m_%d_%H_%M_%S")}.txt', 'w', encoding='utf-8') as f:
+        f.write(report.replace('   \t\r\n', '\n'))
 
     return report
 
@@ -740,6 +754,9 @@ async def main():
         # Create images directory if it doesn't exist.
         if not Path.exists(this_directory / 'output/images'):
             Path.mkdir(this_directory / 'output/images')
+        # Create reports directory if it doesn't exist.
+        if not Path.exists(this_directory / 'output/reports'):
+            Path.mkdir(this_directory / 'output/reports')
 
         # Load variables from config files. The purpose of having config files is so that the user can easily change the variables if needed.
         config_local = configparser.ConfigParser(interpolation=None)
@@ -752,7 +769,7 @@ async def main():
         concurrency = int(concurrency)
         semaphore_cities = asyncio.Semaphore(concurrency)
 
-
+        
         # Start a browser session with playwright.
         playwright = await async_playwright().start()
         firefox = playwright.firefox
@@ -779,15 +796,15 @@ async def main():
 
             if mode == '1':
                 # Scrape all cities.
-                start_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
-                logging.info('Start time: ' + str(start_time))
+                start_time = datetime.now()
+                logging.info('Start time: ' + str(start_time.strftime("%Y-%m-%d %I:%M %p")))
                 await get_website(browser)
                 break
             elif mode == '2':
                 # Scrape all cities from a particular state.
                 input_state = input('Enter state name:\n').strip()
-                start_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
-                logging.info('Start time: ' + str(start_time))
+                start_time = datetime.now()
+                logging.info('Start time: ' + str(start_time.strftime("%Y-%m-%d %I:%M %p")))
                 await get_state(browser, input_state)
                 break
             elif mode == '3':
@@ -797,15 +814,15 @@ async def main():
                     logging.info('\n-----------------------------------------------------------------------')
                     logging.info('Invalid url entered.\n')
                     continue
-                start_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
-                logging.info('Start time: ' + str(start_time))
+                start_time = datetime.now()
+                logging.info('Start time: ' + str(start_time.strftime("%Y-%m-%d %I:%M %p")))
                 community_url = community_url.split('#')[0].split('?')[0].strip('/')
                 await get_community_from_url(browser, community_url)
                 break
             elif mode == '4':
                 # Scrape states listed in states_to_scrape.txt
-                start_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
-                logging.info('Start time: ' + str(start_time))
+                start_time = datetime.now()
+                logging.info('Start time: ' + str(start_time.strftime("%Y-%m-%d %I:%M %p")))
                 with open(Path(this_directory, 'input/states_to_scrape.txt'), 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                     for line in lines:
@@ -816,8 +833,8 @@ async def main():
                 break
             elif mode == '5':
                 # Scrape cities listed in cities_to_scrape.txt
-                start_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
-                logging.info('Start time: ' + str(start_time))
+                start_time = datetime.now()
+                logging.info('Start time: ' + str(start_time.strftime("%Y-%m-%d %I:%M %p")))
                 with open(Path(this_directory, 'input/cities_to_scrape.txt'), 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                     for line in lines:
@@ -828,8 +845,8 @@ async def main():
                 break
             elif mode == '6':
                 # Scrape apartments listed in apartments_to_scrape.txt
-                start_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
-                logging.info('Start time: ' + str(start_time))
+                start_time = datetime.now()
+                logging.info('Start time: ' + str(start_time.strftime("%Y-%m-%d %I:%M %p")))
                 with open(Path(this_directory, 'input/apartments_to_scrape.txt'), 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                     for line in lines:
@@ -846,7 +863,7 @@ async def main():
         await browser.close()
         await playwright.stop()
 
-        scraping_end_time = datetime.now().strftime('%Y-%m-%d %I:%M %p')
+        scraping_end_time = datetime.now()
 
         # Check stats at end of scraping.
         # If any of the functions failed to get data more than 20% of the times, set error_state to True.
@@ -863,22 +880,24 @@ async def main():
         # Check for communities that are in the apartments csv file, but no longer on the website.
         missing_communities = get_missing_communities(mode)
         
-        global newly_added_communities
         global num_scraped_units
         global scraped_communities
+        global existing_scraped_communities
+        global newly_scraped_communities
         num_scraped_communities = len(scraped_communities)
         
         # Generate a detailed report on the scrape.
-        scraping_report = generate_report(start_time, scraping_end_time, num_scraped_communities, num_scraped_units, empty_files, newly_added_communities, missing_communities)
+        scraping_report = generate_report(start_time, scraping_end_time, num_scraped_communities, num_scraped_units, empty_files, existing_scraped_communities, newly_scraped_communities, missing_communities)
 
         logging.info('\nTotal apartments scraped: ' + str(num_scraped_communities))
         logging.info('Total units scraped: ' + str(num_scraped_units))
         logging.info(f'Empty files: {len(empty_files)}')
-        logging.info(f'New apartments: {len(newly_added_communities)}')
+        logging.info(f'Existing apartments: {len(existing_scraped_communities)}')
+        logging.info(f'New apartments: {len(newly_scraped_communities)}')
         logging.info(f'Missing apartments: {len(missing_communities)}')
       
-        logging.info('\nScraping started: ' + str(start_time))
-        logging.info('Scraping ended:   ' + str(scraping_end_time))
+        logging.info('\nScraping started: ' + str(start_time.strftime("%Y-%m-%d %I:%M %p")))
+        logging.info('Scraping ended:   ' + str(scraping_end_time.strftime("%Y-%m-%d %I:%M %p")))
         logging.info('Script ended:     ' + str(datetime.now().strftime('%Y-%m-%d %I:%M %p')))
 
     except:
@@ -889,9 +908,14 @@ async def main():
         if error_state == True:
             # Send an email notifying that there was an error.
             logging.info('\nThere was an error in scraping.\nSending error notification via email...')
-            time_now = datetime.now().strftime('%Y-%m-%d %I:%M %p')
+            time_now = datetime.now()
             email_subject = 'Error in AvalonBay Scraper'
-            email_body = f'There was a problem while scraping the website. Please check the log file for details.   \t\r\nTime of event:  {time_now}'
+            email_body = f'There was a problem while scraping the website. Please check the log file for details.   \t\r\nTime of event:  {time_now.strftime("%Y-%m-%d %I:%M %p")}'
+            
+            # Write error to reports folder.
+            with open(this_directory / f'output/reports/report_{time_now.strftime("%Y_%m_%d_%H_%M_%S")}.txt', 'w', encoding='utf-8') as f:
+                f.write(email_body)
+
             send_email(email_subject, email_body)
         else:
             # Send an email that contains scraping report.
